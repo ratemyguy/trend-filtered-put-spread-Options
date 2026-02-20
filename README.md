@@ -1,1 +1,141 @@
-# trend-filtered-put-spread-Options
+# Trend-Filtered Bull Put Spread Strategy
+
+A systematic options income strategy that sells bull put spreads on SPY, using trend-filtering algorithms to optimize trade entry and risk management. Built in Python with full backtesting from 2010–2024.
+
+---
+
+## Strategy Overview
+
+**Core Idea:** Sell bull put spreads (short put + long put) to collect premium when the market is in a confirmed uptrend. The volatility risk premium — the tendency for implied volatility to exceed realized volatility — is the fundamental edge.
+
+**The Problem with Naive Put Selling:** Short puts get destroyed in downtrends. The trend filter is what makes the strategy systematic and survivable.
+
+**Structure of a Bull Put Spread:**
+- Sell put at 95% of spot price (short leg, ~0.25 delta)
+- Buy put at 90% of spot price (long leg, protection)
+- Collect net premium upfront
+- Max profit = premium collected
+- Max loss = spread width − premium collected
+- Breakeven = short strike − premium collected
+
+---
+
+## Project Architecture
+
+```
+Layer 1  →  Data Pipeline        (SPY OHLCV, 2010–2024)
+Layer 2  →  Trend Filters        (3 signal models)
+Layer 3  →  Options Simulation   (Black-Scholes pricing + backtest)
+Layer 4  →  Position Sizing      (3 sizing models + final tearsheet)
+```
+
+---
+
+## Trend Filters (Layer 2)
+
+Three filters were implemented and compared:
+
+| Filter | Logic | In-Market | Signal Flips |
+|--------|-------|-----------|--------------|
+| A — Price vs SMA(200) | Bullish if Close > SMA(200) | 84.6% | 72 |
+| B — Golden Cross | Bullish if SMA(50) > SMA(200) | 83.4% | 12 |
+| C — ADX Trend Strength | Bullish if ADX > 25 and +DI > −DI | 20.6% | 114 |
+
+**Key Finding:** Filters A and B are in the market 80%+ of the time — they barely filter at all. Filter C (ADX) is the only filter that measures trend *strength* rather than just direction, keeping the strategy out of choppy, range-bound markets where short puts are most dangerous.
+
+![Trend Filters](trend_filters.png)
+
+---
+
+## Backtest Results (Layer 3)
+
+Options priced using Black-Scholes with 30-day historical volatility as sigma input. Trades target 30 DTE with:
+- **Profit target:** 50% of max premium (close early, keep theta decay)
+- **Stop loss:** 2× premium received
+- **Expiry:** Close at 21 DTE if neither target hit
+
+| Metric | Signal A | Signal B | Signal C |
+|--------|----------|----------|----------|
+| Trades | 1,058 | 1,032 | 321 |
+| Win Rate | 80.7% | 80.4% | 76.6% |
+| Total PnL | −$8.30 | −$6.20 | **+$2.17** |
+| Sharpe | −0.03 | −0.03 | **+0.04** |
+| Profit Factor | 0.94 | 0.95 | **1.09** |
+| Max Drawdown | −$26.81 | −$32.05 | **−$8.00** |
+
+**Signal C is the only profitable filter.** Despite a lower win rate than A and B, it is the only one with positive PnL and Sharpe. High win rate without trend filtering is a trap — the losses are 4× the wins.
+
+![Backtest Results](backtest_results.png)
+
+---
+
+## Position Sizing (Layer 4)
+
+Three sizing models applied to Signal C trades on a $100,000 portfolio:
+
+| Model | Total Return | Sharpe | Max DD | Final Equity |
+|-------|-------------|--------|--------|--------------|
+| Fixed (1 contract) | 0.22% | 0.041 | −0.80% | $100,217 |
+| Fixed Fractional (2% risk) | 0.61% | **0.094** | **−0.75%** | $100,612 |
+| Vol-Adjusted Sizing | 0.14% | 0.026 | −0.92% | $100,143 |
+
+**Fixed Fractional sizing improves Sharpe by 2.3× over naive fixed sizing** by scaling position size to risk a consistent percentage of portfolio per trade, allowing the strategy to compound naturally as equity grows.
+
+![Final Tearsheet](final_tearsheet.png)
+
+---
+
+## Key Takeaways
+
+1. **Trend filtering matters more than win rate.** Signal C wins less often than A and B but is the only profitable filter because it avoids the regimes where losses are catastrophic.
+
+2. **ADX measures trend strength, not just direction.** This is the critical distinction — being above SMA(200) doesn't mean the trend is strong enough to sell puts safely.
+
+3. **Position sizing meaningfully improves risk-adjusted returns.** Fixed fractional sizing delivered 2.3× better Sharpe with lower drawdown versus fixed sizing.
+
+4. **Returns are modest by design.** The strategy uses conservative strikes (95%/90%), no leverage, and historical vol rather than implied vol. In live trading, the IV premium over realized vol widens margins further.
+
+---
+
+## How to Run
+
+**Requirements:**
+```bash
+pip install yfinance pandas numpy matplotlib scipy
+```
+
+**Run in order:**
+```bash
+python layer1_2_trend_filter.py   # Fetches data, computes signals
+python layer3_options.py          # Prices options, runs backtest
+python layer4_sizing.py           # Position sizing, final tearsheet
+```
+
+**Outputs:**
+- `spy_with_signals.csv` — price data with all 3 signals
+- `trades_signal_A/B/C.csv` — trade logs per signal
+- `trend_filters.png` — signal visualization
+- `backtest_results.png` — equity curves and PnL distribution
+- `final_tearsheet.png` — professional tearsheet
+
+---
+
+## Tech Stack
+
+- **Data:** yfinance (Yahoo Finance API)
+- **Pricing:** Black-Scholes via scipy.stats.norm
+- **Analysis:** pandas, numpy
+- **Visualization:** matplotlib
+
+---
+
+## Next Steps
+
+- [ ] Use real implied volatility from options chain data (CBOE)
+- [ ] Walk-forward optimization to avoid overfitting signal thresholds
+- [ ] VIX regime overlay for additional filter
+- [ ] Live paper trading via IBKR API
+
+---
+
+*Strategy in active development. All results are backtested and do not represent live trading performance.*
